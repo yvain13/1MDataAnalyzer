@@ -175,18 +175,33 @@ AnalyzerEngineService.prototype = {
   },
 
   _keywordSample: function(analysis, fields, targetSize, totalCount) {
-    var keywords = [];
-    try { keywords = JSON.parse(analysis.sampling_keywords || '[]'); } catch(e) {}
+    var keywords = this._parseKeywords(analysis.sampling_keywords);
     if (keywords.length === 0) return this._temporalSample(analysis, fields, targetSize, totalCount);
     var baseQuery = this._buildBaseQuery(analysis);
     var clauses = [];
     keywords.forEach(function(kw) {
-      fields.forEach(function(f) { clauses.push(f + 'CONTAINS' + kw.trim()); });
+      fields.forEach(function(f) { clauses.push(f + 'CONTAINS' + kw); });
     });
     var q = baseQuery + '^' + clauses.join('^OR');
     var records = this._fetchPage(analysis.table_name, q, fields, targetSize, 0);
     if (records.length === 0) return this._temporalSample(analysis, fields, targetSize, totalCount);
     return records;
+  },
+
+  _parseKeywords: function(raw) {
+    if (!raw) return [];
+    var parsed = raw;
+    try { parsed = JSON.parse(raw); } catch(e) { parsed = raw; }
+    var list = [];
+    if (Array.isArray(parsed)) list = parsed;
+    else if (typeof parsed === 'string') list = parsed.split(',');
+    else return [];
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var kw = ('' + list[i]).trim();
+      if (kw) out.push(kw);
+    }
+    return out;
   },
 
   _extractionPass: function(analysisSysId, analysis, records, fields) {
@@ -245,7 +260,30 @@ AnalyzerEngineService.prototype = {
     var trendText = temporalTrend.map(function(t){return t.period+': '+t.count;}).join(', ');
     var custom = analysis.custom_instructions ? '\nADDITIONAL INSTRUCTIONS (higher priority):\n' + analysis.custom_instructions : '';
 
-    var prompt = 'You are a data analyst writing a business report.\n\nDataset: "' + analysis.table_name + '" · ' + totalCount + ' total records · ' + sampledCount + ' analyzed · ' + analysis.date_from + ' → ' + analysis.date_to + '\nText fields: ' + fields.join(', ') + (analysis.category_field ? ' | Category: ' + analysis.category_field : '') + (catText ? '\n\nCategory distribution:\n' + catText : '') + (trendText ? '\nMonthly volume: ' + trendText : '') + '\n\nTOP THEMES:\n' + topThemes + '\n\nANOMALIES:\n' + uniqueAnomalies + '\n\nCATEGORY NOTES:\n' + catContext + '\n\nWrite a report in HTML (not markdown). Use <h2> for sections, <ul>/<li> for bullets. Sections: Executive Summary (3 sentences), Key Findings (5-7 bullets with numbers), Category Analysis, Anomalies & Outliers (3-5 bullets), Recommended Actions (3 bullets). Under 600 words. Numbers over adjectives. No hedging language.' + custom;
+    var prompt = 'You are a senior data analyst writing a polished executive briefing.\n\n' +
+      'DATASET\n' +
+      'Table: ' + analysis.table_name + '\n' +
+      'Window: ' + analysis.date_from + ' → ' + analysis.date_to + '\n' +
+      'Total records: ' + totalCount + ' · Analyzed sample: ' + sampledCount + '\n' +
+      'Text fields: ' + fields.join(', ') + (analysis.category_field ? '\nCategory field: ' + analysis.category_field : '') +
+      (catText ? '\n\nCATEGORY DISTRIBUTION (top)\n' + catText : '') +
+      (trendText ? '\n\nMONTHLY VOLUME\n' + trendText : '') +
+      '\n\nTOP THEMES (with batch frequency)\n' + topThemes +
+      '\n\nANOMALIES OBSERVED\n' + uniqueAnomalies +
+      '\n\nCATEGORY NOTES\n' + catContext +
+      '\n\nOUTPUT FORMAT — strict HTML, no markdown, no <html>/<body> wrapper, no inline styles, no <br> tags. Use these sections in this order:\n' +
+      '<h2>Executive Summary</h2><p>2-3 sentences. Lead with the single most important finding, then scale (numbers), then implication. No hedging words ("may", "could", "appears").</p>\n' +
+      '<h2>Key Findings</h2><ol><li>5 to 7 items. Each starts with a <strong>bold lead clause</strong> followed by a colon and supporting evidence with a real number from the data.</li></ol>\n' +
+      '<h2>Category Analysis</h2><p>One sentence intro.</p><ul><li><strong>Category name (count, %)</strong> — what records in this category have in common.</li></ul> Cover the top 4-6 categories.\n' +
+      '<h2>Anomalies &amp; Outliers</h2><ul><li>3-5 items. Each cites the specific anomaly and why it stands out.</li></ul>\n' +
+      '<h2>Recommended Actions</h2><ol><li><strong>Action verb first</strong> — one specific, owner-assignable next step. Exactly 3 items.</li></ol>\n' +
+      '\nRULES\n' +
+      '• Under 650 words total.\n' +
+      '• Lead with numbers, not adjectives. Cite real counts/percentages from the data above.\n' +
+      '• No phrases like "the data shows", "it is important to note", "in conclusion".\n' +
+      '• No emoji. No markdown (`**`, `#`, `-`). HTML tags only.\n' +
+      '• If a section has no real evidence, write <p>Insufficient signal in this sample.</p> rather than padding.' +
+      custom;
 
     var resp = this.llm.complete(prompt, 1500);
     return resp.content || '<p>Report generation failed — no content returned.</p>';

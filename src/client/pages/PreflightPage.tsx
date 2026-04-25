@@ -24,7 +24,8 @@ export default function PreflightPage({ state, update, nav }: { state: WizardSta
         selected_fields: state.fields, sampling_strategy: state.strategy,
         category_field: state.categoryField, subcategory_field: state.subcategoryField,
         encoded_query: state.encodedQuery, custom_instructions: state.customInstructions,
-        sample_size: state.sampleSize, sampling_keywords: state.keywords,
+        sample_size: state.sampleSize,
+        sampling_keywords: state.keywords.split(',').map(k => k.trim()).filter(Boolean),
       })
       nav('status', { id: analysis.sys_id })
     } catch(e: any) { setError(e.message); setLaunching(false) }

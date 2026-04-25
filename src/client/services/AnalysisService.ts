@@ -11,7 +11,7 @@ export interface AnalysisParams {
   encoded_query?: string
   custom_instructions?: string
   sample_size?: number
-  sampling_keywords?: string
+  sampling_keywords?: string[]
 }
 
 export interface Analysis {
